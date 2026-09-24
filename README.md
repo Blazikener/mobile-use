@@ -289,6 +289,14 @@ app. It does not enforce browser origins, network access, filesystem access, or
 OS isolation. When automating a browser in strict mode, navigate with the
 browser's own address bar or in-app controls rather than `open_link`.
 
+To keep a record of what strict mode stopped, set `APP_LOCK_EVENTS_PATH` to a
+file. Each block (another app launch, a deep link, stopping the app, Home),
+each foreground restore, and each abort is appended as one JSON line with a
+timestamp, the approved package, the action, the decision, a fixed reason
+code, and, where relevant, the other package involved. URLs, screen content,
+and model output are never written. The file is written by the harness, not the
+model; it is not signed, and it lists only what the strict checks detected.
+
 The equivalent SDK builder is:
 
 ```python

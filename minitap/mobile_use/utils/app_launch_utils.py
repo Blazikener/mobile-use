@@ -9,6 +9,7 @@ from minitap.mobile_use.controllers.platform_specific_commands_controller import
     get_current_foreground_package_async,
 )
 from minitap.mobile_use.errors import AppLockViolationError
+from minitap.mobile_use.utils.app_lock_events import record_app_lock_event
 from minitap.mobile_use.controllers.unified_controller import UnifiedMobileController
 from minitap.mobile_use.utils.logger import get_logger
 
@@ -128,6 +129,13 @@ def assert_strict_app_launch_allowed(ctx: MobileUseContext, app_package: str) ->
 
     locked_app_package = get_strict_locked_app_package(ctx)
     if locked_app_package and app_package != locked_app_package:
+        record_app_lock_event(
+            locked_app_package=locked_app_package,
+            action="launch_app",
+            decision="blocked",
+            reason="launch_other_app",
+            target_package=app_package,
+        )
         raise AppLockViolationError(
             f"Strict app lock only allows {locked_app_package}; refusing to launch {app_package}"
         )
@@ -149,6 +157,12 @@ async def enforce_strict_app_lock(ctx: MobileUseContext) -> bool:
     execution_setup = getattr(ctx, "execution_setup", None)
     app_lock_status = getattr(execution_setup, "app_lock_status", None)
     if app_lock_status.locked_app_initial_launch_success is not True:
+        record_app_lock_event(
+            locked_app_package=locked_app_package,
+            action="foreground_check",
+            decision="aborted",
+            reason="initial_launch_unverified",
+        )
         raise AppLockViolationError(
             f"Strict app lock could not verify initial launch of {locked_app_package}"
         )
@@ -157,6 +171,12 @@ async def enforce_strict_app_lock(ctx: MobileUseContext) -> bool:
     if current_app_package == locked_app_package:
         return False
     if current_app_package is None:
+        record_app_lock_event(
+            locked_app_package=locked_app_package,
+            action="foreground_check",
+            decision="aborted",
+            reason="foreground_unknown",
+        )
         raise AppLockViolationError(
             f"Could not verify strict app lock for {locked_app_package}: foreground app is unknown"
         )
@@ -166,17 +186,30 @@ async def enforce_strict_app_lock(ctx: MobileUseContext) -> bool:
         "restoring the approved app"
     )
     success, error = await launch_app_with_retries(ctx, app_package=locked_app_package)
-    if not success:
-        raise AppLockViolationError(
-            f"Strict app lock could not restore {locked_app_package}: "
-            f"{error or 'foreground verification failed'}"
-        )
-
-    verified_package = await get_current_foreground_package_async(ctx)
+    verified_package = await get_current_foreground_package_async(ctx) if success else None
     if verified_package != locked_app_package:
+        record_app_lock_event(
+            locked_app_package=locked_app_package,
+            action="foreground_check",
+            decision="aborted",
+            reason="restore_failed",
+            target_package=current_app_package,
+        )
+        if not success:
+            raise AppLockViolationError(
+                f"Strict app lock could not restore {locked_app_package}: "
+                f"{error or 'foreground verification failed'}"
+            )
         raise AppLockViolationError(
             f"Could not verify strict app lock for {locked_app_package} after relaunch"
         )
+    record_app_lock_event(
+        locked_app_package=locked_app_package,
+        action="foreground_check",
+        decision="restored",
+        reason="foreground_mismatch",
+        target_package=current_app_package,
+    )
     return True
 
 
