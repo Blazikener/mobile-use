@@ -51,7 +51,8 @@ def get_press_key_tool(ctx: MobileUseContext):
                 decision="blocked",
                 reason="home_key",
             )
-            output = False
+            has_failed = True
+            output = "Strict app lock blocks the Home key because it would leave the approved app."
         else:
             match key:
                 case Key.HOME:
@@ -60,7 +61,7 @@ def get_press_key_tool(ctx: MobileUseContext):
                     output = await controller.go_back()
                 case Key.ENTER:
                     output = await controller.press_enter()
-        has_failed = not output
+            has_failed = not output
 
         agent_outcome = (
             press_key_wrapper.on_failure_fn(key)

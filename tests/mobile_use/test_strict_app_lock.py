@@ -21,6 +21,7 @@ from minitap.mobile_use.sdk.agent import Agent  # noqa: E402
 from minitap.mobile_use.sdk.types.exceptions import AppLockViolationError  # noqa: E402
 from minitap.mobile_use.tools.mobile.launch_app import get_launch_app_tool  # noqa: E402
 from minitap.mobile_use.tools.mobile.open_link import get_open_link_tool  # noqa: E402
+from minitap.mobile_use.tools.mobile.press_key import Key, get_press_key_tool  # noqa: E402
 from minitap.mobile_use.utils.app_launch_utils import (  # noqa: E402
     assert_strict_app_launch_allowed,
     enforce_strict_app_lock,
@@ -358,6 +359,25 @@ async def test_strict_lock_blocks_deep_links_before_the_operating_system_can_rou
     message = result.update["executor_messages"][-1]
     assert message.status == "error"
     assert "Strict app lock blocks deep links" in message.additional_kwargs["error"]
+
+
+@pytest.mark.asyncio
+async def test_strict_lock_tells_the_executor_why_home_was_blocked(monkeypatch):
+    import minitap.mobile_use.tools.mobile.press_key as press_key_module
+
+    monkeypatch.setattr(press_key_module, "UnifiedMobileController", lambda _ctx: None)
+    tool = get_press_key_tool(_strict_context())
+
+    result = await tool.coroutine(  # type: ignore
+        agent_thought="Go home",
+        key=Key.HOME,
+        tool_call_id="call-3",
+        state=_ToolState(),
+    )
+
+    message = result.update["executor_messages"][-1]
+    assert message.status == "error"
+    assert "Strict app lock blocks the Home key" in message.additional_kwargs["error"]
 
 
 @pytest.mark.asyncio
