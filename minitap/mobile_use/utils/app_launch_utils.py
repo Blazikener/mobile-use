@@ -156,7 +156,7 @@ async def enforce_strict_app_lock(ctx: MobileUseContext) -> bool:
 
     execution_setup = getattr(ctx, "execution_setup", None)
     app_lock_status = getattr(execution_setup, "app_lock_status", None)
-    if app_lock_status.locked_app_initial_launch_success is not True:
+    if app_lock_status is None or app_lock_status.locked_app_initial_launch_success is not True:
         record_app_lock_event(
             locked_app_package=locked_app_package,
             action="foreground_check",

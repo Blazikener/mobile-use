@@ -1,32 +1,45 @@
+import importlib
+import sys
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
 from langchain_core.messages import ToolMessage
 
-from minitap.mobile_use.agents.contextor.contextor import ContextorNode
-from minitap.mobile_use.agents.executor.tool_node import ExecutorToolNode
-from minitap.mobile_use.context import AppLaunchResult
-from minitap.mobile_use.sdk.agent import Agent
-from minitap.mobile_use.sdk.types.exceptions import AppLockViolationError
-from minitap.mobile_use.tools.mobile.launch_app import get_launch_app_tool
-from minitap.mobile_use.tools.mobile.open_link import get_open_link_tool
-from minitap.mobile_use.utils.app_launch_utils import (
+# A legacy outputter test installs a process-wide module mock during collection.
+vertex_module = sys.modules.get("langchain_google_vertexai")
+if vertex_module is not None and not hasattr(vertex_module, "__path__"):
+    sys.modules.pop("langchain_google_vertexai", None)
+    importlib.import_module("langchain_google_vertexai")
+
+from minitap.mobile_use.agents.contextor.contextor import ContextorNode  # noqa: E402
+from minitap.mobile_use.agents.executor.tool_node import ExecutorToolNode  # noqa: E402
+from minitap.mobile_use.context import AppLaunchResult, MobileUseContext  # noqa: E402
+from minitap.mobile_use.graph.state import State  # noqa: E402
+from minitap.mobile_use.sdk.agent import Agent  # noqa: E402
+from minitap.mobile_use.sdk.types.exceptions import AppLockViolationError  # noqa: E402
+from minitap.mobile_use.tools.mobile.launch_app import get_launch_app_tool  # noqa: E402
+from minitap.mobile_use.tools.mobile.open_link import get_open_link_tool  # noqa: E402
+from minitap.mobile_use.utils.app_launch_utils import (  # noqa: E402
     assert_strict_app_launch_allowed,
     enforce_strict_app_lock,
 )
 
 
-def _strict_context() -> SimpleNamespace:
-    return SimpleNamespace(
-        execution_setup=SimpleNamespace(
-            app_lock_status=AppLaunchResult(
-                locked_app_package="com.example.approved",
-                locked_app_initial_launch_success=True,
-                locked_app_initial_launch_error=None,
-                app_lock_policy="strict",
+def _strict_context() -> MobileUseContext:
+    return cast(
+        MobileUseContext,
+        SimpleNamespace(
+            execution_setup=SimpleNamespace(
+                app_lock_status=AppLaunchResult(
+                    locked_app_package="com.example.approved",
+                    locked_app_initial_launch_success=True,
+                    locked_app_initial_launch_error=None,
+                    app_lock_policy="strict",
+                )
             )
-        )
+        ),
     )
 
 
@@ -38,8 +51,11 @@ class _ToolState:
 @pytest.mark.asyncio
 async def test_strict_lock_never_asks_llm_to_allow_a_mismatched_app(monkeypatch):
     node = ContextorNode(_strict_context())
-    state = SimpleNamespace(
-        initial_goal="Stay in the approved app", subgoal_plan=[], agents_thoughts=[]
+    state = cast(
+        State,
+        SimpleNamespace(
+            initial_goal="Stay in the approved app", subgoal_plan=[], agents_thoughts=[]
+        ),
     )
     relaunched = False
 
@@ -69,8 +85,11 @@ async def test_strict_lock_never_asks_llm_to_allow_a_mismatched_app(monkeypatch)
 @pytest.mark.asyncio
 async def test_strict_lock_fails_when_the_approved_app_cannot_be_restored(monkeypatch):
     node = ContextorNode(_strict_context())
-    state = SimpleNamespace(
-        initial_goal="Stay in the approved app", subgoal_plan=[], agents_thoughts=[]
+    state = cast(
+        State,
+        SimpleNamespace(
+            initial_goal="Stay in the approved app", subgoal_plan=[], agents_thoughts=[]
+        ),
     )
 
     async def failed_relaunch(*_args, **_kwargs):
@@ -117,9 +136,7 @@ async def test_strict_lock_never_reads_screen_after_a_verification_exception(
     monkeypatch, failure_stage
 ):
     node = ContextorNode(_strict_context())
-    screen_read = AsyncMock(
-        return_value=SimpleNamespace(elements=[], base64="", width=1, height=1)
-    )
+    screen_read = AsyncMock(return_value=SimpleNamespace(elements=[], base64="", width=1, height=1))
     controller_failure = RuntimeError("device controller failed")
     foreground_reads = 0
 
@@ -177,7 +194,7 @@ async def test_initial_strict_lock_failure_stops_before_the_graph(monkeypatch):
     monkeypatch.setattr(agent_module, "_handle_initial_app_launch", failed_initial_launch)
 
     with pytest.raises(AppLockViolationError, match="could not launch"):
-        await Agent._prepare_app_lock(SimpleNamespace(), task, context)
+        await Agent._prepare_app_lock(SimpleNamespace(), task, context)  # type: ignore
 
     assert context.execution_setup.app_lock_status.app_lock_policy == "strict"
 
@@ -191,7 +208,9 @@ async def test_strict_lock_requires_an_explicit_app_package():
 
     with pytest.raises(AppLockViolationError, match="requires a locked_app_package"):
         await Agent._prepare_app_lock(
-            SimpleNamespace(), task, SimpleNamespace(execution_setup=None)
+            SimpleNamespace(),  # type: ignore
+            task,  # type: ignore
+            SimpleNamespace(execution_setup=None),  # type: ignore
         )
 
 
@@ -274,7 +293,7 @@ async def test_executor_enforces_the_strict_lock_after_a_tool_and_aborts_the_bat
     monkeypatch.setattr(tool_node_module, "enforce_strict_app_lock", lock_violation)
 
     with pytest.raises(AppLockViolationError, match="foreground package changed"):
-        await node._ExecutorToolNode__func(
+        await node._ExecutorToolNode__func(  # type: ignore
             is_async=True,
             input={},
             config=SimpleNamespace(),
@@ -315,7 +334,7 @@ async def test_executor_rejects_unverified_foreground_before_first_tool(monkeypa
     monkeypatch.setattr(tool_node_module, "enforce_strict_app_lock", lock_violation)
 
     with pytest.raises(AppLockViolationError, match="foreground app is unknown"):
-        await node._ExecutorToolNode__func(
+        await node._ExecutorToolNode__func(  # type: ignore
             is_async=is_async,
             input={},
             config=SimpleNamespace(),
@@ -329,7 +348,7 @@ async def test_executor_rejects_unverified_foreground_before_first_tool(monkeypa
 async def test_strict_lock_blocks_deep_links_before_the_operating_system_can_route_them():
     tool = get_open_link_tool(_strict_context())
 
-    result = await tool.coroutine(
+    result = await tool.coroutine(  # type: ignore
         agent_thought="Open the account recovery link",
         url="https://example.test/recovery",
         tool_call_id="call-1",
@@ -355,7 +374,7 @@ async def test_strict_lock_blocks_executor_launch_of_another_package(monkeypatch
     monkeypatch.setattr(launch_app_module, "launch_app_with_retries", launch_must_not_run)
     tool = get_launch_app_tool(_strict_context())
 
-    result = await tool.coroutine(
+    result = await tool.coroutine(  # type: ignore
         app_name="Unapproved app",
         agent_thought="Open another app",
         tool_call_id="call-2",

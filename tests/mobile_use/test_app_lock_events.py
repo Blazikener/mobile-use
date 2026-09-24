@@ -1,28 +1,44 @@
+import importlib
 import json
+import sys
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
-from minitap.mobile_use.context import AppLaunchResult
-from minitap.mobile_use.sdk.types.exceptions import AppLockViolationError
-from minitap.mobile_use.tools.mobile.launch_app import get_launch_app_tool
-from minitap.mobile_use.tools.mobile.open_link import get_open_link_tool
-from minitap.mobile_use.tools.mobile.press_key import Key, get_press_key_tool
-from minitap.mobile_use.tools.mobile.stop_app import get_stop_app_tool
-from minitap.mobile_use.utils.app_launch_utils import enforce_strict_app_lock
-from minitap.mobile_use.utils.app_lock_events import record_app_lock_event
+# A legacy outputter test installs a process-wide module mock during collection.
+vertex_module = sys.modules.get("langchain_google_vertexai")
+if vertex_module is not None and not hasattr(vertex_module, "__path__"):
+    sys.modules.pop("langchain_google_vertexai", None)
+    importlib.import_module("langchain_google_vertexai")
+
+from minitap.mobile_use.context import (  # noqa: E402
+    AppLaunchResult,
+    AppLockPolicy,
+    MobileUseContext,
+)
+from minitap.mobile_use.sdk.types.exceptions import AppLockViolationError  # noqa: E402
+from minitap.mobile_use.tools.mobile.launch_app import get_launch_app_tool  # noqa: E402
+from minitap.mobile_use.tools.mobile.open_link import get_open_link_tool  # noqa: E402
+from minitap.mobile_use.tools.mobile.press_key import Key, get_press_key_tool  # noqa: E402
+from minitap.mobile_use.tools.mobile.stop_app import get_stop_app_tool  # noqa: E402
+from minitap.mobile_use.utils.app_launch_utils import enforce_strict_app_lock  # noqa: E402
+from minitap.mobile_use.utils.app_lock_events import record_app_lock_event  # noqa: E402
 
 
-def _context(policy: str = "strict") -> SimpleNamespace:
-    return SimpleNamespace(
-        execution_setup=SimpleNamespace(
-            app_lock_status=AppLaunchResult(
-                locked_app_package="com.example.approved",
-                locked_app_initial_launch_success=True,
-                locked_app_initial_launch_error=None,
-                app_lock_policy=policy,
+def _context(policy: AppLockPolicy = "strict") -> MobileUseContext:
+    return cast(
+        MobileUseContext,
+        SimpleNamespace(
+            execution_setup=SimpleNamespace(
+                app_lock_status=AppLaunchResult(
+                    locked_app_package="com.example.approved",
+                    locked_app_initial_launch_success=True,
+                    locked_app_initial_launch_error=None,
+                    app_lock_policy=policy,
+                )
             )
-        )
+        ),
     )
 
 
@@ -79,7 +95,7 @@ async def test_blocked_launch_records_the_requested_package(events_path, monkeyp
     monkeypatch.setattr(launch_app_module, "find_package", find_unapproved_package)
     tool = get_launch_app_tool(_context())
 
-    await tool.coroutine(
+    await tool.coroutine(  # type: ignore
         app_name="Settings",
         agent_thought="Open settings",
         tool_call_id="call-1",
@@ -99,7 +115,7 @@ async def test_blocked_launch_records_the_requested_package(events_path, monkeyp
 async def test_blocked_deep_link_never_records_the_url(events_path):
     tool = get_open_link_tool(_context())
 
-    await tool.coroutine(
+    await tool.coroutine(  # type: ignore
         agent_thought="Open the recovery link",
         url="https://example.test/recovery?token=secret-value",
         tool_call_id="call-1",
@@ -122,13 +138,13 @@ async def test_blocked_stop_app_and_home_key_are_recorded(events_path, monkeypat
     import minitap.mobile_use.tools.mobile.press_key as press_key_module
 
     monkeypatch.setattr(press_key_module, "UnifiedMobileController", lambda _ctx: None)
-    await get_stop_app_tool(_context()).coroutine(
+    await get_stop_app_tool(_context()).coroutine(  # type: ignore
         agent_thought="Close the app",
         package_name="com.example.approved",
         tool_call_id="call-1",
         state=_ToolState(),
     )
-    await get_press_key_tool(_context()).coroutine(
+    await get_press_key_tool(_context()).coroutine(  # type: ignore
         agent_thought="Go home",
         key=Key.HOME,
         tool_call_id="call-2",
@@ -155,7 +171,7 @@ async def test_permissive_lock_records_nothing(events_path, monkeypatch):
 
     monkeypatch.setattr(open_link_module, "UnifiedMobileController", FakeController)
 
-    await tool.coroutine(
+    await tool.coroutine(  # type: ignore
         agent_thought="Open a link",
         url="https://example.test",
         tool_call_id="call-1",
