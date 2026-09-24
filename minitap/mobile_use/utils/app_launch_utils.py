@@ -4,10 +4,11 @@ Utilities for handling app locking and initial app launch logic.
 
 import asyncio
 
-from minitap.mobile_use.context import AppLaunchResult, MobileUseContext
+from minitap.mobile_use.context import AppLaunchResult, AppLockPolicy, MobileUseContext
 from minitap.mobile_use.controllers.platform_specific_commands_controller import (
     get_current_foreground_package_async,
 )
+from minitap.mobile_use.errors import AppLockViolationError
 from minitap.mobile_use.controllers.unified_controller import UnifiedMobileController
 from minitap.mobile_use.utils.logger import get_logger
 
@@ -112,9 +113,77 @@ async def launch_app_with_retries(
     return False, error_msg
 
 
+def get_strict_locked_app_package(ctx: MobileUseContext) -> str | None:
+    """Return the approved package only when strict enforcement is enabled."""
+
+    execution_setup = getattr(ctx, "execution_setup", None)
+    app_lock_status = getattr(execution_setup, "app_lock_status", None)
+    if not app_lock_status or app_lock_status.app_lock_policy != "strict":
+        return None
+    return app_lock_status.locked_app_package
+
+
+def assert_strict_app_launch_allowed(ctx: MobileUseContext, app_package: str) -> None:
+    """Reject an executor request to launch an app outside a strict boundary."""
+
+    locked_app_package = get_strict_locked_app_package(ctx)
+    if locked_app_package and app_package != locked_app_package:
+        raise AppLockViolationError(
+            f"Strict app lock only allows {locked_app_package}; refusing to launch {app_package}"
+        )
+
+
+async def enforce_strict_app_lock(ctx: MobileUseContext) -> bool:
+    """Verify the foreground package after an action and restore it if needed.
+
+    Returns ``True`` when a deterministic relaunch was required.  It raises
+    rather than producing a warning if the foreground app is unknown or the
+    approved app cannot be restored.  Callers use this after each executor tool
+    call so a batch cannot continue operating in an unintended application.
+    """
+
+    locked_app_package = get_strict_locked_app_package(ctx)
+    if not locked_app_package:
+        return False
+
+    execution_setup = getattr(ctx, "execution_setup", None)
+    app_lock_status = getattr(execution_setup, "app_lock_status", None)
+    if app_lock_status.locked_app_initial_launch_success is not True:
+        raise AppLockViolationError(
+            f"Strict app lock could not verify initial launch of {locked_app_package}"
+        )
+
+    current_app_package = await get_current_foreground_package_async(ctx)
+    if current_app_package == locked_app_package:
+        return False
+    if current_app_package is None:
+        raise AppLockViolationError(
+            f"Could not verify strict app lock for {locked_app_package}: foreground app is unknown"
+        )
+
+    logger.warning(
+        f"Strict app lock observed {current_app_package} instead of {locked_app_package}; "
+        "restoring the approved app"
+    )
+    success, error = await launch_app_with_retries(ctx, app_package=locked_app_package)
+    if not success:
+        raise AppLockViolationError(
+            f"Strict app lock could not restore {locked_app_package}: "
+            f"{error or 'foreground verification failed'}"
+        )
+
+    verified_package = await get_current_foreground_package_async(ctx)
+    if verified_package != locked_app_package:
+        raise AppLockViolationError(
+            f"Could not verify strict app lock for {locked_app_package} after relaunch"
+        )
+    return True
+
+
 async def _handle_initial_app_launch(
     ctx: MobileUseContext,
     locked_app_package: str,
+    app_lock_policy: AppLockPolicy = "permissive",
 ) -> AppLaunchResult:
     """
     Handle initial app launch verification and launching if needed.
@@ -138,6 +207,7 @@ async def _handle_initial_app_launch(
             locked_app_package=locked_app_package,
             locked_app_initial_launch_success=False,
             locked_app_initial_launch_error=error_msg,
+            app_lock_policy=app_lock_policy,
         )
 
     logger.info(f"Starting initial app launch for package: {locked_app_package}")
@@ -152,6 +222,7 @@ async def _handle_initial_app_launch(
                 locked_app_package=locked_app_package,
                 locked_app_initial_launch_success=True,
                 locked_app_initial_launch_error=None,
+                app_lock_policy=app_lock_policy,
             )
 
         logger.info(f"App {locked_app_package} not in foreground, attempting to launch")
@@ -161,6 +232,7 @@ async def _handle_initial_app_launch(
             locked_app_package=locked_app_package,
             locked_app_initial_launch_success=success,
             locked_app_initial_launch_error=error_msg,
+            app_lock_policy=app_lock_policy,
         )
 
     except Exception as e:
@@ -170,4 +242,5 @@ async def _handle_initial_app_launch(
             locked_app_package=locked_app_package,
             locked_app_initial_launch_success=False,
             locked_app_initial_launch_error=error_msg,
+            app_lock_policy=app_lock_policy,
         )

@@ -257,6 +257,50 @@ python ./minitap/mobile_use/main.py \
   --output-description "A JSON list of objects, each with 'sender' and 'subject' keys"
 ```
 
+### Strict app boundary
+
+`--locked-app-package` normally launches the named app and retains the existing
+model-mediated recovery behavior. To require deterministic foreground checks
+and recovery at context capture and tool-dispatch boundaries, add
+`--strict-app-lock`:
+
+```bash
+mobile-use \
+  "Review the seeded test record and return only the requested JSON evidence" \
+  --locked-app-package com.example.approved \
+  --strict-app-lock \
+  --output-description "Return exactly one JSON object with the requested keys."
+```
+
+Strict mode is opt-in and requires `--locked-app-package`. It checks the
+foreground package before the contextor captures a screen, and before and after
+each executor tool call. If a check reports an unknown foreground app, encounters
+an error, or cannot restore and verify the approved app, the task fails instead
+of asking an LLM to approve the deviation. It also rejects executor attempts to
+launch another app, open an operating-system-routed deep link, stop the approved
+app, or press Home.
+
+These checks are application-level controls. Device focus can change between a
+check and an action or screen capture, and compound tools can perform several
+device operations and internal screen reads before the post-call check runs.
+Background recording can also capture intervening screens. Strict mode therefore
+does not guarantee that every interaction or captured frame stays within one
+app. It does not enforce browser origins, network access, filesystem access, or
+OS isolation. When automating a browser in strict mode, navigate with the
+browser's own address bar or in-app controls rather than `open_link`.
+
+The equivalent SDK builder is:
+
+```python
+request = (
+    agent.new_task("Review the seeded test record")
+    .with_locked_app_package("com.example.approved")
+    .with_strict_app_lock()
+    .build()
+)
+await agent.run_task(request=request)
+```
+
 > [!NOTE]
 > If you haven't configured a specific model, mobile-use will prompt you to choose one from the available options.
 
