@@ -12,6 +12,7 @@ from minitap.mobile_use.controllers.unified_controller import UnifiedMobileContr
 from minitap.mobile_use.graph.state import State
 from minitap.mobile_use.tools.tool_wrapper import ToolWrapper
 from minitap.mobile_use.utils.app_launch_utils import get_strict_locked_app_package
+from minitap.mobile_use.utils.app_lock_events import record_app_lock_event
 
 
 def get_open_link_tool(ctx: MobileUseContext):
@@ -29,7 +30,13 @@ def get_open_link_tool(ctx: MobileUseContext):
         if locked_app_package:
             # A deep link delegates its handler to the operating system. The
             # strict policy cannot prove which app will receive it, so it must
-            # not permit that foreground-app handoff.
+            # not permit that foreground-app handoff. The URL is not recorded.
+            record_app_lock_event(
+                locked_app_package=locked_app_package,
+                action="open_link",
+                decision="blocked",
+                reason="os_routed_deep_link",
+            )
             has_failed = True
             output = (
                 "Strict app lock blocks deep links because their destination "

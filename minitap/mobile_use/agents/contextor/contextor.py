@@ -12,6 +12,7 @@ from minitap.mobile_use.controllers.platform_specific_commands_controller import
     get_device_date,
 )
 from minitap.mobile_use.errors import AppLockViolationError
+from minitap.mobile_use.utils.app_lock_events import record_app_lock_event
 from minitap.mobile_use.graph.state import State
 from minitap.mobile_use.services.llm import get_llm, invoke_llm_with_timeout_message, with_fallback
 from minitap.mobile_use.utils.app_launch_utils import launch_app_with_retries
@@ -59,6 +60,13 @@ class ContextorNode:
                                 self.ctx
                             )
                             if current_app_package != locked_app_package:
+                                record_app_lock_event(
+                                    locked_app_package=locked_app_package,
+                                    action="context_capture",
+                                    decision="aborted",
+                                    reason="restore_failed",
+                                    target_package=current_app_package,
+                                )
                                 raise AppLockViolationError(
                                     f"Could not verify strict app lock for {locked_app_package} "
                                     "after relaunch"
@@ -78,6 +86,12 @@ class ContextorNode:
                         "foreground app is unknown"
                     )
                     if is_strict_app_lock:
+                        record_app_lock_event(
+                            locked_app_package=locked_app_package,
+                            action="context_capture",
+                            decision="aborted",
+                            reason="foreground_unknown",
+                        )
                         raise AppLockViolationError(error)
                     logger.warning(error)
             else:
@@ -139,6 +153,13 @@ class ContextorNode:
             # deviation.
             logger.info(f"Strict app lock: relaunching {locked_app_package}")
             success, error = await launch_app_with_retries(self.ctx, app_package=locked_app_package)
+            record_app_lock_event(
+                locked_app_package=locked_app_package,
+                action="context_capture",
+                decision="restored" if success else "aborted",
+                reason="foreground_mismatch" if success else "restore_failed",
+                target_package=current_app_package,
+            )
             if not success:
                 raise AppLockViolationError(
                     f"Strict app lock could not restore {locked_app_package}: "
