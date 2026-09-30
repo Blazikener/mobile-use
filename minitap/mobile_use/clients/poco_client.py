@@ -22,9 +22,9 @@ class PocoPayload(BaseModel):
     type: str = ""
     text: str | None = None
     visible: bool = True
-    pos: tuple[FiniteFloat, FiniteFloat] | None = None
-    size: tuple[FiniteFloat, FiniteFloat] | None = None
-    anchorPoint: tuple[FiniteFloat, FiniteFloat] = (0.5, 0.5)
+    pos: tuple[float, float] | None = None
+    size: tuple[float, float] | None = None
+    anchorPoint: tuple[float, float] = (0.5, 0.5)
 
 
 class PocoNode(BaseModel):
@@ -112,7 +112,6 @@ def normalize_hierarchy(root: PocoNode, width: int, height: int) -> list[dict]:
                 "resource-id": name,
                 "text": payload.text or "",
                 "class": payload.type,
-                "accessibilityText": name,
                 "bounds": f"[{x1},{y1}][{x2},{y2}]",
             }
         )

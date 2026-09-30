@@ -14,10 +14,9 @@ matching is separate from Poco's element-tree service.
 
 1. For Unity, follow the [Poco-SDK Unity instructions](https://github.com/AirtestProject/Poco-SDK/tree/master/Unity3D):
    add the SDK scripts for your UI framework, attach `PocoManager` to a persistent
-   GameObject, and rebuild the Android game. For Unreal, the SDK provides a
-   [PocoSDK plugin](https://github.com/AirtestProject/Poco-SDK/tree/master/Unreal)
-   that must be enabled and compiled into the game. Check that SDK's engine and
-   platform support; this integration does not establish UE5 compatibility.
+   GameObject, and rebuild the Android game. Check the SDK's engine version and
+   UI-framework support. See the Unreal limitation below before considering its
+   separate plugin.
 2. Install and launch that build on the Android device used by mobile-use.
    Confirm the game exposes a meaningful tree, rather than only a root node.
 3. Forward the game's actual Poco TCP port to your machine. The usual default is
@@ -100,6 +99,16 @@ fallback. They do not establish compatibility with an actual Unity or Unreal
 build. Before relying on a game, verify its named controls align with screenshot
 bounds and that taps change the intended game state, including scene changes,
 system dialogs, and disconnect/reconnect.
+
+### Unreal limitation
+
+Do not use this initial client with the unmodified reference Unreal plugin.
+Each observation opens and closes a TCP connection. The upstream
+[Unreal worker](https://github.com/AirtestProject/Poco-SDK/blob/master/Unreal/PocoSDK/Source/PocoSDK/Private/PocoManager.cpp)
+keeps retrying after a disconnect without terminating or reaping that worker,
+so repeated observations accumulate threads and sockets. Unreal needs a
+connection-reuse follow-up and validation of the game SDK's connection cleanup.
+Its shared RPC format alone does not establish support, including for UE5.
 
 Protocol references:
 

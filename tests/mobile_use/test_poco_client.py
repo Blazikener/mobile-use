@@ -180,9 +180,20 @@ def test_normalize_anchor_clipping_visibility_and_nested_nodes(tree):
     ]
 
 
-@pytest.mark.parametrize("coordinate", [float("nan"), float("inf"), "invalid"])
-def test_malformed_coordinates_are_rejected(tree, coordinate):
-    tree["children"][0]["payload"]["pos"] = [coordinate, 0.5]
+@pytest.mark.parametrize("field", ["pos", "size", "anchorPoint"])
+@pytest.mark.parametrize("coordinate", [float("nan"), float("inf"), "NaN", "Infinity"])
+def test_non_finite_geometry_skips_only_affected_node(tree, field, coordinate):
+    tree["children"][0]["payload"][field] = [coordinate, 0.5]
+    tree["children"][0]["children"] = [
+        {"name": "Survivor", "payload": {"pos": [0.5, 0.5], "size": [0.1, 0.1]}}
+    ]
+    result = normalize_hierarchy(PocoNode.model_validate(tree), 1000, 500)
+    assert [element["resource-id"] for element in result] == ["Survivor", "Play"]
+    assert result[-1]["bounds"] == "[650,200][850,300]"
+
+
+def test_malformed_coordinates_are_rejected(tree):
+    tree["children"][0]["payload"]["pos"] = ["invalid", 0.5]
     with pytest.raises(ValidationError):
         PocoNode.model_validate(tree)
 
@@ -238,6 +249,17 @@ async def test_game_observation_and_indexed_tap_use_fresh_poco_data(tree):
         assert ui.get_screenshot.call_count == 2
         assert len(requests) == 2
         assert requests[0]["id"] != requests[1]["id"]
+
+
+@pytest.mark.asyncio
+async def test_text_selector_does_not_match_an_unrelated_node_name(tree):
+    tree["children"][1]["name"] = "Other"
+    tree["children"][1]["payload"]["text"] = "Play"
+    async with rpc_server(tree) as (config, _):
+        ctx, adb, _ = make_context(config)
+        result = await UnifiedMobileController(ctx).tap_element(text="Play")
+        assert result.error is None
+        adb.device.return_value.shell.assert_called_with("input tap 750 250")
 
 
 @pytest.mark.asyncio
