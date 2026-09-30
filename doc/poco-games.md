@@ -84,6 +84,12 @@ falls back to the native hierarchy. No previous game tree is cached. A configure
 endpoint must belong to the selected device and game; the RPC service cannot
 verify that binding itself.
 
+An SDK agent shares one Poco client across tasks and controllers. Requests are
+serialized over a persistent connection, without caching the hierarchy. A
+disconnected reused connection gets one retry for the read-only `Dump` request,
+within the configured timeout. Failed requests discard their connection, and
+`await agent.clean()` closes the client. Keep the agent on one asyncio event loop.
+
 ## Scope and verification
 
 The initial integration supports screen-space game observation and coordinate,
@@ -103,12 +109,14 @@ system dialogs, and disconnect/reconnect.
 ### Unreal limitation
 
 Do not use this initial client with the unmodified reference Unreal plugin.
-Each observation opens and closes a TCP connection. The upstream
+The client reuses its connection across observations, but the upstream
 [Unreal worker](https://github.com/AirtestProject/Poco-SDK/blob/master/Unreal/PocoSDK/Source/PocoSDK/Private/PocoManager.cpp)
-keeps retrying after a disconnect without terminating or reaping that worker,
-so repeated observations accumulate threads and sockets. Unreal needs a
-connection-reuse follow-up and validation of the game SDK's connection cleanup.
-Its shared RPC format alone does not establish support, including for UE5.
+keeps retrying after a disconnect without terminating or reaping that worker.
+Connection reuse avoids creating a worker per observation; disconnects and
+agent shutdown still require a corrected game SDK that reaps its workers and
+sockets. Validate that cleanup in the instrumented game before enabling this
+integration for Unreal. Its shared RPC format alone does not establish support,
+including for UE5.
 
 Protocol references:
 

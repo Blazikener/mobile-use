@@ -48,31 +48,75 @@ class PocoResponse(BaseModel):
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 
-async def dump_hierarchy(config: PocoConfig) -> PocoNode:
-    """Read Poco-SDK's length-prefixed JSON-RPC Dump response."""
-    request_id = str(uuid4())
-    request = json.dumps(
-        {"jsonrpc": "2.0", "id": request_id, "method": "Dump", "params": [True]}
-    ).encode("utf-8")
-    async with asyncio.timeout(config.timeout):
-        reader, writer = await asyncio.open_connection(config.host, config.port)
-        try:
-            writer.write(struct.pack("<i", len(request)) + request)
-            await writer.drain()
-            length = struct.unpack("<i", await reader.readexactly(4))[0]
-            if not 0 < length <= MAX_RESPONSE_BYTES:
-                raise ValueError("Invalid Poco response length")
-            response = PocoResponse.model_validate_json(await reader.readexactly(length))
-            if response.id != request_id:
-                raise ValueError("Poco response does not match the request")
-            if response.error is not None:
-                raise ValueError(f"Poco Dump failed: {response.error.message}")
-            if response.result is None:
-                raise ValueError("Poco response has no hierarchy")
-            return response.result
-        finally:
+class PocoClient:
+    """Serialize Poco-SDK Dump requests over a reusable TCP connection."""
+
+    def __init__(self, config: PocoConfig):
+        self.config = config
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+        self._lock = asyncio.Lock()
+
+    async def dump_hierarchy(self) -> PocoNode:
+        async with asyncio.timeout(self.config.timeout):
+            async with self._lock:
+                if (self._reader is not None and self._reader.at_eof()) or (
+                    self._writer is not None and self._writer.is_closing()
+                ):
+                    self._disconnect()
+                reused = self._writer is not None
+                try:
+                    try:
+                        return await self._request_hierarchy()
+                    except (ConnectionError, asyncio.IncompleteReadError):
+                        if not reused:
+                            raise
+                        self._disconnect()
+                        return await self._request_hierarchy()
+                except BaseException:
+                    self._disconnect()
+                    raise
+
+    async def _request_hierarchy(self) -> PocoNode:
+        if self._reader is None or self._writer is None:
+            self._reader, self._writer = await asyncio.open_connection(
+                self.config.host, self.config.port
+            )
+        request_id = str(uuid4())
+        request = json.dumps(
+            {"jsonrpc": "2.0", "id": request_id, "method": "Dump", "params": [True]}
+        ).encode("utf-8")
+        self._writer.write(struct.pack("<i", len(request)) + request)
+        await self._writer.drain()
+        length = struct.unpack("<i", await self._reader.readexactly(4))[0]
+        if not 0 < length <= MAX_RESPONSE_BYTES:
+            raise ValueError("Invalid Poco response length")
+        response = PocoResponse.model_validate_json(await self._reader.readexactly(length))
+        if response.id != request_id:
+            raise ValueError("Poco response does not match the request")
+        if response.error is not None:
+            raise ValueError(f"Poco Dump failed: {response.error.message}")
+        if response.result is None:
+            raise ValueError("Poco response has no hierarchy")
+        return response.result
+
+    def _disconnect(self) -> asyncio.StreamWriter | None:
+        writer = self._writer
+        self._reader = None
+        self._writer = None
+        if writer is not None:
             writer.close()
-            await writer.wait_closed()
+        return writer
+
+    async def close(self) -> None:
+        async with self._lock:
+            writer = self._disconnect()
+            if writer is not None:
+                try:
+                    async with asyncio.timeout(self.config.timeout):
+                        await writer.wait_closed()
+                except (OSError, TimeoutError):
+                    pass
 
 
 def normalize_hierarchy(root: PocoNode, width: int, height: int) -> list[dict]:

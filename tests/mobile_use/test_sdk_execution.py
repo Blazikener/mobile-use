@@ -1,5 +1,6 @@
 import importlib
 import sys
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -109,5 +110,25 @@ async def test_poco_config_reaches_task_context(monkeypatch):
     with pytest.raises(ContextCaptured):
         await agent.run_task(goal="Tap Play")
     assert len(contexts) == 1
-    assert contexts[0].poco_config == poco
+    assert contexts[0].poco_client is agent._poco_client
+    assert contexts[0].poco_client is not None
+    assert contexts[0].poco_client.config == poco
     assert contexts[0].device.device_id == "game-device"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initialized", [False, True])
+async def test_cleanup_closes_shared_poco_client(monkeypatch, initialized):
+    config = (
+        Builders.AgentConfig.for_device(DevicePlatform.ANDROID, "game-device")
+        .with_poco_hierarchy(PocoConfig(package_name="com.example.game"))
+        .build(validate_profiles=False)
+    )
+    agent = Agent(config=config)
+    agent._initialized = initialized
+    agent._ios_client = None
+    assert agent._poco_client is not None
+    close = AsyncMock()
+    monkeypatch.setattr(agent._poco_client, "close", close)
+    await agent.clean()
+    close.assert_awaited_once()

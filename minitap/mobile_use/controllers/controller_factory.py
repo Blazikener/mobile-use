@@ -9,7 +9,7 @@ logger = get_logger(__name__)
 
 def create_device_controller(ctx: MobileUseContext) -> MobileDeviceController:
     platform = ctx.device.mobile_platform
-    if ctx.poco_config is not None and (
+    if ctx.poco_client is not None and (
         platform != DevicePlatform.ANDROID or ctx.cloud_android_controller is not None
     ):
         raise ValueError("Poco hierarchy requires a local Android device")
@@ -32,7 +32,7 @@ def create_device_controller(ctx: MobileUseContext) -> MobileDeviceController:
             ui_adb_client=ctx.ui_adb_client,
             device_width=ctx.device.device_width,
             device_height=ctx.device.device_height,
-            poco_config=ctx.poco_config,
+            poco_client=ctx.poco_client,
         )
 
     elif platform == DevicePlatform.IOS:

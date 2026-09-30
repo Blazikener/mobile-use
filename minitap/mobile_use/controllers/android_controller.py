@@ -9,7 +9,7 @@ from pathlib import Path
 from adbutils import AdbClient, AdbDevice
 from PIL import Image
 
-from minitap.mobile_use.clients.poco_client import PocoConfig, dump_hierarchy, normalize_hierarchy
+from minitap.mobile_use.clients.poco_client import PocoClient, normalize_hierarchy
 from minitap.mobile_use.clients.ui_automator_client import UIAutomatorClient
 from minitap.mobile_use.controllers.device_controller import (
     MobileDeviceController,
@@ -42,14 +42,14 @@ class AndroidDeviceController(MobileDeviceController):
         ui_adb_client: UIAutomatorClient,
         device_width: int,
         device_height: int,
-        poco_config: PocoConfig | None = None,
+        poco_client: PocoClient | None = None,
     ):
         self.device_id = device_id
         self.adb_client = adb_client
         self.ui_adb_client = ui_adb_client
         self.device_width = device_width
         self.device_height = device_height
-        self.poco_config = poco_config
+        self.poco_client = poco_client
         self._device: AdbDevice | None = None
 
     @property
@@ -94,12 +94,12 @@ class AndroidDeviceController(MobileDeviceController):
         """Get screen data using the UIAutomator2 client"""
         try:
             if (
-                self.poco_config is not None
+                self.poco_client is not None
                 and await asyncio.to_thread(self._get_current_foreground_package)
-                == self.poco_config.package_name
+                == self.poco_client.config.package_name
             ):
                 try:
-                    return await self._get_poco_screen_data(self.poco_config)
+                    return await self._get_poco_screen_data(self.poco_client)
                 except Exception as e:
                     logger.warning(f"Poco hierarchy unavailable; using native hierarchy: {e}")
             logger.info("Using UIAutomator2 for screen data retrieval")
@@ -115,12 +115,12 @@ class AndroidDeviceController(MobileDeviceController):
             logger.error(f"Failed to get screen data: {e}")
             raise
 
-    async def _get_poco_screen_data(self, config: PocoConfig) -> ScreenDataResponse:
+    async def _get_poco_screen_data(self, client: PocoClient) -> ScreenDataResponse:
         image = await asyncio.to_thread(self.ui_adb_client.get_screenshot)
         if image is None:
             raise RuntimeError("Failed to capture screenshot via UIAutomator2")
         with image:
-            hierarchy = await dump_hierarchy(config)
+            hierarchy = await client.dump_hierarchy()
             elements = normalize_hierarchy(hierarchy, image.width, image.height)
             if not elements:
                 raise ValueError("Poco returned no visible elements with usable bounds")
