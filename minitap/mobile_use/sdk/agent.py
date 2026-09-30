@@ -624,6 +624,7 @@ class Agent:
             ui_adb_client=self._ui_adb_client,
             ios_client=self._ios_client,
             cloud_android_controller=cloud_android_controller,
+            poco_config=self._config.poco_config,
             llm_config=agent_profile.llm_config,
             video_recording_enabled=(
                 self._config.video_recording_enabled
